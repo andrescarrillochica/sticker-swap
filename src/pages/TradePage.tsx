@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { ShoppingCart, QrCode, ClipboardPaste, ChevronRight, X, AlertTriangle, Check } from 'lucide-react';
+import { ShoppingCart, QrCode, ClipboardPaste, ChevronRight, X, AlertTriangle, Check, Camera } from 'lucide-react';
+import { QRScanner } from '../components/QRScanner';
 import { useCollection } from '../lib/CollectionContext';
 import { useTradeCart } from '../lib/TradeCartContext';
 import { getEntry, getMissingStickers, getSparesMap } from '../lib/collection';
@@ -295,6 +296,8 @@ function QRTrade() {
   const [finalError, setFinalError] = useState('');
   const [finalReview, setFinalReview] = useState<FinalTradePayload | null>(null);
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [showPartnerScanner, setShowPartnerScanner] = useState(false);
+  const [showFinalScanner, setShowFinalScanner] = useState(false);
   const { updateCollection } = useCollection();
 
   const mySnapshot = useMemo(() => getTradeSnapshot(collection), [collection]);
@@ -374,16 +377,27 @@ function QRTrade() {
         </button>
       </div>
 
-      {/* Partner paste */}
+      {/* Partner paste/scan */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
-        <h3 className="font-semibold text-sm text-gray-900">Scan Partner's QR</h3>
-        <p className="text-xs text-gray-500">Paste your partner's collection snapshot payload.</p>
-        {/* TODO: Add camera QR scanner here using a library like html5-qrcode */}
+        <h3 className="font-semibold text-sm text-gray-900">Partner's Collection QR</h3>
+        <p className="text-xs text-gray-500">Scan or paste your partner's collection snapshot.</p>
+        <button
+          onClick={() => setShowPartnerScanner(true)}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold active:bg-gray-800"
+        >
+          <Camera size={16} />
+          Scan Partner's QR
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-xs text-gray-400">or paste manually</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
         <textarea
           value={pasteValue}
           onChange={(e) => setPasteValue(e.target.value)}
           placeholder="Paste partner QR payload here..."
-          className="w-full h-24 px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono"
+          className="w-full h-20 px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono"
         />
         {parseError && <p className="text-xs text-red-500">{parseError}</p>}
         <button
@@ -444,13 +458,25 @@ function QRTrade() {
       <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
         <h3 className="font-semibold text-sm text-gray-900">Apply Partner's Final Trade QR</h3>
         <p className="text-xs text-gray-500">
-          Paste your partner's Final Trade QR to apply the trade to your device.
+          Scan or paste your partner's Final Trade QR to apply the trade to your device.
         </p>
+        <button
+          onClick={() => setShowFinalScanner(true)}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold active:bg-gray-800"
+        >
+          <Camera size={16} />
+          Scan Final Trade QR
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-xs text-gray-400">or paste manually</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
         <textarea
           value={finalPaste}
           onChange={(e) => setFinalPaste(e.target.value)}
           placeholder="Paste final trade payload here..."
-          className="w-full h-24 px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono"
+          className="w-full h-20 px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono"
         />
         {finalError && <p className="text-xs text-red-500">{finalError}</p>}
         <button
@@ -518,6 +544,53 @@ function QRTrade() {
           title="My Collection Snapshot"
           payload={mySnapshotStr}
           onClose={() => setShowMyQR(false)}
+        />
+      )}
+
+      {showPartnerScanner && (
+        <QRScanner
+          onScan={(value) => {
+            setShowPartnerScanner(false);
+            setPasteValue(value);
+            setParseError('');
+            try {
+              const payload = parseAndValidatePayload(value.trim());
+              if (payload.type !== 'collection-snapshot') {
+                setParseError('Expected a collection snapshot payload.');
+                return;
+              }
+              const snap = payload as CollectionSnapshot;
+              setPartnerSnapshot(snap);
+              const p = calculateTradeProposal(collection, snap);
+              setProposal(p);
+              setSelectedReceive(new Set(p.iCanReceive));
+              setSelectedGive(new Set(p.iCanGive));
+            } catch (e) {
+              setParseError(e instanceof Error ? e.message : 'Unknown error');
+            }
+          }}
+          onClose={() => setShowPartnerScanner(false)}
+        />
+      )}
+
+      {showFinalScanner && (
+        <QRScanner
+          onScan={(value) => {
+            setShowFinalScanner(false);
+            setFinalPaste(value);
+            setFinalError('');
+            try {
+              const payload = parseAndValidatePayload(value.trim());
+              if (payload.type !== 'final-trade') {
+                setFinalError('Expected a final-trade payload.');
+                return;
+              }
+              setFinalReview(payload as FinalTradePayload);
+            } catch (e) {
+              setFinalError(e instanceof Error ? e.message : 'Unknown error');
+            }
+          }}
+          onClose={() => setShowFinalScanner(false)}
         />
       )}
 
