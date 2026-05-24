@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Camera, AlertCircle } from 'lucide-react';
+import jsQR from 'jsqr';
 
 interface QRScannerProps {
   onScan: (value: string) => void;
@@ -13,6 +14,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(document.createElement('canvas'));
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(false);
+  const scannedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -20,7 +22,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
+          video: { facingMode: { ideal: 'environment' } },
         });
         if (!active) {
           stream.getTracks().forEach((t) => t.stop());
@@ -31,15 +33,15 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
           videoRef.current.srcObject = stream;
           videoRef.current.play();
           setScanning(true);
-          tick();
+          requestAnimationFrame(tick);
         }
       } catch {
-        setError('Camera access denied or unavailable.');
+        if (active) setError('Camera access denied or unavailable. Please paste the code manually.');
       }
     }
 
-    async function tick() {
-      if (!active) return;
+    function tick() {
+      if (!active || scannedRef.current) return;
       const video = videoRef.current;
       if (!video || video.readyState < 2) {
         rafRef.current = requestAnimationFrame(tick);
@@ -53,19 +55,14 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
       if (!ctx) return;
       ctx.drawImage(video, 0, 0);
 
-      try {
-        // @ts-ignore — BarcodeDetector is not in all TS libs yet
-        const detector = new BarcodeDetector({ formats: ['qr_code'] });
-        const barcodes = await detector.detect(canvas);
-        if (barcodes.length > 0 && barcodes[0].rawValue) {
-          if (active) {
-            onScan(barcodes[0].rawValue);
-          }
-          return;
-        }
-      } catch {
-        // BarcodeDetector not supported — fall through to error
-        setError('QR scanning not supported in this browser. Please paste the code manually.');
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert',
+      });
+
+      if (code?.data) {
+        scannedRef.current = true;
+        onScan(code.data);
         return;
       }
 
@@ -84,7 +81,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 safe-area-top">
+      <div className="flex items-center justify-between px-4 py-3">
         <span className="text-white font-semibold text-sm">Scan QR Code</span>
         <button
           onClick={onClose}
@@ -107,12 +104,10 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
         {scanning && !error && (
           <div className="relative z-10 pointer-events-none">
             <div className="w-64 h-64 relative">
-              {/* Corner brackets */}
               <span className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-sm" />
               <span className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-sm" />
               <span className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-sm" />
               <span className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-sm" />
-              {/* Scan line animation */}
               <div className="absolute inset-x-2 top-2 h-0.5 bg-blue-400/80 animate-scan" />
             </div>
           </div>
